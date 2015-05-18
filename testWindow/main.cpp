@@ -2,6 +2,8 @@
 //hardcoded for debug
 #pragma comment(lib, "..\\debug\\winsockLib.lib")
 
+#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")  
+
 HWND mainWindow;
 HWND startServerButton;
 HWND connectButton;
@@ -13,10 +15,10 @@ HWND ipEdit;
 HWND portEdit;
 HWND labels[10];
 HWND* label;
+std::string outputString;
 
-wsl::Winsock* winsock;
-wsl::Server* server;
-wsl::Client* client;
+wsl::Server server;
+wsl::Client client;
 
 void buttonClick(HANDLE button);
 std::string getEditText(HWND edit);
@@ -43,15 +45,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpCmdLine, int nCmdShow)
 {
-	//load library
-	winsock = new wsl::Winsock();
-	server = nullptr;
-	client = nullptr;
-
+	/* * * * load library* * * * * */
+	wsl::Winsock winsock;
+	/* * * * * * * * * * * * * * * */
+	outputString = "";
 	const char className[] = "myWindowClass";
 	label = labels;
 	WNDCLASSEX wc;
 	MSG Msg;
+	ZeroMemory(&Msg, sizeof(Msg));
 	ZeroMemory(&wc, sizeof(wc));
 	wc.cbSize = sizeof(WNDCLASSEX);
 	wc.lpfnWndProc = WndProc;
@@ -68,9 +70,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		return 0;
 	}
 
-	// Step 2: Creating the Window
-	mainWindow = CreateWindowEx(
-		WS_EX_CLIENTEDGE,
+	mainWindow = CreateWindowEx(WS_EX_CONTROLPARENT|WS_EX_CLIENTEDGE,
 		className,
 		"Server/Client test",
 		WS_OVERLAPPEDWINDOW,
@@ -84,23 +84,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		return 0;
 	}
 
-	connectButton = CreateWindowEx(NULL, "Button", "Connect", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON, 
+	connectButton = CreateWindowEx(NULL, "Button", "Connect", WS_GROUP | WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
 		10, 10, 100, 20, mainWindow, NULL, hInstance, NULL);
 	startServerButton = CreateWindowEx(NULL, "Button", "Start Server", WS_TABSTOP | WS_VISIBLE | WS_CHILD ,
 		120, 10, 100, 20, mainWindow, NULL, hInstance, NULL);
 	disconnectButton = CreateWindowEx(NULL, "Button", "Disconnect", WS_TABSTOP | WS_VISIBLE | WS_CHILD,
 		230, 10, 100, 20, mainWindow, NULL, hInstance, NULL);
+	EnableWindow(disconnectButton, 0);
+	UpdateWindow(disconnectButton);
 	*(label++) = CreateWindowEx(NULL, "Static", "IP",  WS_VISIBLE | WS_CHILD ,
 		10, 40, 100, 20, mainWindow, NULL, hInstance, NULL);
 	*(label++) = CreateWindowEx(NULL, "Static", "Port",  WS_VISIBLE | WS_CHILD,
 		230, 40, 100, 20, mainWindow, NULL, hInstance, NULL);
 	ipEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "Edit", "", WS_TABSTOP | WS_VISIBLE | WS_CHILD,
 		10, 70, 210, 20, mainWindow, NULL, hInstance, NULL);
+	SetWindowText(ipEdit, "127.0.0.1");
 	portEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "Edit", "", WS_TABSTOP | WS_VISIBLE | WS_CHILD,
 		230, 70, 100, 20, mainWindow, NULL, hInstance, NULL);
+	SetWindowText(portEdit, "50000");
 	*(label++) = CreateWindowEx(NULL, "Static", "Output", WS_VISIBLE | WS_CHILD,
 		10, 100, 100, 20, mainWindow, NULL, hInstance, NULL);
-	outputEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "Edit", "", WS_TABSTOP | WS_VISIBLE | WS_CHILD | WS_VSCROLL |
+	outputEdit = CreateWindowEx(WS_EX_CLIENTEDGE, "Edit", "",  WS_VISIBLE | WS_CHILD | WS_VSCROLL |
 		ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
 		10, 130, 320, 200, mainWindow, NULL, hInstance, NULL);
 	*(label++) = CreateWindowEx(NULL, "Static", "Input", WS_VISIBLE | WS_CHILD,
@@ -110,17 +114,60 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	sendButton = CreateWindowEx(NULL, "Button", "Send", WS_TABSTOP | WS_VISIBLE | WS_CHILD,
 		230, 370, 100, 20, mainWindow, NULL, hInstance, NULL);
 
+	HFONT hFontDef = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+	HWND* it = &startServerButton;
+	for (int i = 0; i < 18;i++,it++)
+		SendMessage(*it, WM_SETFONT, (WPARAM)hFontDef, MAKELPARAM(TRUE, 0));
+
 	ShowWindow(mainWindow, nCmdShow);
 	UpdateWindow(mainWindow);
-
-	while (GetMessage(&Msg, NULL, 0, 0) > 0)
+	while (WM_QUIT != Msg.message)
 	{
-		TranslateMessage(&Msg);
-		DispatchMessage(&Msg);
+		if(PeekMessage(&Msg, NULL, 0, 0, PM_REMOVE))
+		{
+			if (IsDialogMessage(mainWindow, &Msg)){}
+			else
+			{
+				TranslateMessage(&Msg);
+				DispatchMessage(&Msg);
+			}
+		}
+		else
+		{
+			/* * * * read messages * * * * */
+			if (server.IsRunning())
+			{
+				std::vector<wsl::Client*> clients = server.GetClients();
+				bool newMessage = false;
+				for (auto c : clients)
+				{
+					std::vector<byte> msg = c->GetNextMessage();
+					if (msg.size() > 0)
+					{
+						newMessage = true;						
+						outputString += std::string(msg.begin(), msg.end());
+						outputString += "\r\n";
+					}
+				}
+				if (newMessage)
+					SetWindowText(outputEdit, outputString.c_str());
+			}
+			else if (client.IsConnected())
+			{
+				bool newMessage = false;
+				std::vector<byte> msg = client.GetNextMessage();
+				if (msg.size() > 0)
+				{
+					newMessage = true;					
+					outputString += std::string(msg.begin(), msg.end());
+					outputString += "\r\n";
+				}
+				if (newMessage)
+					SetWindowText(outputEdit, outputString.c_str());
+			}
+			/* * * * * * * * * * * * * * * */
+		}
 	}
-
-	//release library
-	delete winsock;
 
 	return Msg.wParam;
 }
@@ -137,6 +184,28 @@ int getPort()
 	return port;
 }
 
+void disableButton(HWND button)
+{
+	EnableWindow(button, 0);
+	UpdateWindow(button);
+}
+
+void enableButton(HWND button)
+{
+	EnableWindow(button, 1);
+	UpdateWindow(button);
+}
+
+void displayErrorMessage(wsl::SocketException se)
+{
+	std::string str(se.callStack);
+	str += "\n\n";
+	str += se.message;
+	std::stringstream sscode;
+	sscode << "Code: " << se.code;
+	MessageBox(0, str.c_str(), sscode.str().c_str(), MB_ICONERROR);
+}
+
 void buttonClick(HANDLE button)
 {
 	if (button == startServerButton)
@@ -145,12 +214,21 @@ void buttonClick(HANDLE button)
 		if (port == -1)
 			return;
 
-		server = new wsl::Server(port);
-		server->Start(10);
-		EnableWindow(startServerButton, 0);
-		UpdateWindow(startServerButton);
-		EnableWindow(connectButton, 0);
-		UpdateWindow(connectButton);
+		/* * * * start server* * * * * */
+		try
+		{
+			server.Init(port);
+			server.Start();
+		}
+		catch (wsl::SocketException se)
+		{
+			displayErrorMessage(se);
+		}
+		/* * * * * * * * * * * * * * * */
+
+		disableButton(startServerButton);
+		disableButton(connectButton);
+		enableButton(disconnectButton);
 	}
 	else if (button == connectButton)
 	{
@@ -158,36 +236,60 @@ void buttonClick(HANDLE button)
 		if (port == -1)
 			return;
 		std::string ip = getEditText(ipEdit);
+		/* * * * * connect client* * * */
 		try
-		{
-			client = new wsl::Client(ip, port);
-			client->Connect();
+		{			
+			client.Init(ip, port);
+			client.Connect();
 		}
-		catch (std::string str)
+		catch (wsl::SocketException se)
 		{
-			MessageBox(0, str.c_str(), 0, 0);
+			displayErrorMessage(se);
 		}
-		EnableWindow(connectButton, 0);
-		UpdateWindow(connectButton);
-		EnableWindow(startServerButton, 0);
-		UpdateWindow(startServerButton);
+		/* * * * * * * * * * * * * * * */
+		disableButton(connectButton);
+		disableButton(startServerButton);
+		enableButton(disconnectButton);
 	}
 	else if (button == sendButton)
 	{
-		std::string msg = getEditText(outputEdit);
-		server->SendAll((byte*)msg.c_str(), msg.length());
+		std::string msg = getEditText(inputEdit);
+		/* * * *send message * * * * * */
+		try
+		{
+			if (server.IsRunning())
+			{
+				server.SendAll((byte*)msg.c_str(), msg.length());
+			}
+			else if (client.IsConnected())
+			{
+				client.Send((byte*)msg.c_str(), msg.length());
+			}
+		}
+		catch (wsl::SocketException se)
+		{
+			displayErrorMessage(se);
+		}
+		/* * * * * * * * * * * * * * * */
 	}
 	else if (button == disconnectButton)
 	{
-		if (server != nullptr)
+		/* * * * stop server or client */
+		try
 		{
-			delete server;
-			server = nullptr;
+			if (server.IsRunning())
+				server.Stop();
+			if (client.IsConnected())
+				client.Disconnect();
 		}
-		EnableWindow(connectButton, 1);
-		UpdateWindow(connectButton);
-		EnableWindow(startServerButton, 1);
-		UpdateWindow(startServerButton);
+		catch (wsl::SocketException se)
+		{
+			displayErrorMessage(se);
+		}
+		/* * * * * * * * * * * * * * * */
+		enableButton(connectButton);
+		enableButton(startServerButton);
+		disableButton(disconnectButton);
 	}
 }
 
