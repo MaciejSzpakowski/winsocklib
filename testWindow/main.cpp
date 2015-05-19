@@ -22,12 +22,27 @@ wsl::Client client;
 
 void buttonClick(HANDLE button);
 std::string getEditText(HWND edit);
+void writeOutput(std::string str);
+void displayErrorMessage(wsl::SocketException se);
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	switch (msg)
 	{
 	case WM_CLOSE:
+		/* * * * stop server or client */
+		try
+		{
+			if (server.IsRunning())
+				server.Stop();
+			if (client.IsConnected())
+				client.Disconnect();
+		}
+		catch (wsl::SocketException se)
+		{
+			displayErrorMessage(se);
+		}
+		/* * * * * * * * * * * * * * * */
 		DestroyWindow(hwnd);
 		break;
 	case WM_DESTROY:
@@ -135,35 +150,42 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		else
 		{
 			/* * * * read messages * * * * */
-			if (server.IsRunning())
+			try
 			{
-				std::vector<wsl::Client*> clients = server.GetClients();
-				bool newMessage = false;
-				for (auto c : clients)
+				if (server.IsRunning())
 				{
-					std::vector<byte> msg = c->GetNextMessage();
+					std::vector<wsl::Client*> clients = server.GetClients();
+					bool newMessage = false;
+					for (auto c : clients)
+					{
+						std::vector<byte> msg = c->GetNextMessage();
+						if (msg.size() > 0)
+						{
+							newMessage = true;
+							outputString += std::string(msg.begin(), msg.end());
+							outputString += "\r\n";
+						}
+					}
+					if (newMessage)
+						SetWindowText(outputEdit, outputString.c_str());
+				}
+				else if (client.IsConnected())
+				{
+					bool newMessage = false;
+					std::vector<byte> msg = client.GetNextMessage();
 					if (msg.size() > 0)
 					{
-						newMessage = true;						
+						newMessage = true;
 						outputString += std::string(msg.begin(), msg.end());
 						outputString += "\r\n";
 					}
+					if (newMessage)
+						SetWindowText(outputEdit, outputString.c_str());
 				}
-				if (newMessage)
-					SetWindowText(outputEdit, outputString.c_str());
 			}
-			else if (client.IsConnected())
+			catch (wsl::SocketException se)
 			{
-				bool newMessage = false;
-				std::vector<byte> msg = client.GetNextMessage();
-				if (msg.size() > 0)
-				{
-					newMessage = true;					
-					outputString += std::string(msg.begin(), msg.end());
-					outputString += "\r\n";
-				}
-				if (newMessage)
-					SetWindowText(outputEdit, outputString.c_str());
+				displayErrorMessage(se);
 			}
 			/* * * * * * * * * * * * * * * */
 		}
@@ -301,4 +323,11 @@ std::string getEditText(HWND edit)
 	std::string result = buffer;
 	delete[] buffer;
 	return result;
+}
+
+void writeOutput(std::string str)
+{
+	outputString += str;
+	outputString += "\r\n";
+	SetWindowText(outputEdit, outputString.c_str());
 }

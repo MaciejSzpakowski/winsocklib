@@ -46,21 +46,54 @@ namespace wsl
 	class Socket
 	{
 	protected:
-		string name;		
-		vector<byte> sendBuffer;		
+		long long id;
+		SocketException lastSocketException;
+		string name;
 		sockaddr_in address;
 		SOCKET handle;		
 	public:
-		string Socket::GetName(){
-			return name; }
+		string GetName()
+		{
+			return name; 
+		}
 
-		void Socket::SetName(string str){
-			name = str; }
+		void SetName(string str)
+		{
+			name = str;
+		}
+
+		long long GetId()
+		{
+			return id;
+		}
+
+		//not necessary, all sockets are guaranteed to have a unique id
+		void SetId(int val)
+		{
+			id = val;
+		}
 
 		string GetIP(){
 			char ip[100];
 			inet_ntop(AF_INET, &(address.sin_addr), ip, 100);
 			return string(ip);	}
+
+		void ClearLastException()
+		{
+			lastSocketException.code = 0;
+		}
+
+		void SetLastException(SocketException se)
+		{
+			lastSocketException = se;
+		}
+
+		//to be called in catching thread
+		void CheckForException()
+		{
+			if (lastSocketException.code != 0)
+				throw lastSocketException;
+		}
 	};
 
 	class Client : public Socket
@@ -72,14 +105,7 @@ namespace wsl
 		bool connected;
 		friend void AcceptThread(Server* server);
 		friend void ReceiveThread(Client* client);
-		friend class Server;
-		//constructor for client used by server
-		Client(SOCKET s, sockaddr_in sa)
-		{
-			connected = false;
-			handle = s;
-			address = sa;
-		}
+		friend class Server;		
 	public:		
 		//constructor for actual client program
 		Client(string ip, unsigned short port);
@@ -93,16 +119,31 @@ namespace wsl
 		//disconnect from server
 		void Disconnect();
 
-		bool IsConnected(){
-			return connected;	}
+		bool IsConnected()
+		{
+			return connected;
+		}
 
+		//easy to use, returns message as vector of bytes
+		//bytes can be accessed directly by calling data() on the vector
+		//it consumes the msg
 		vector<byte> GetNextMessage();
+
+		//returns length in bytes of the next message in receive buffer
+		//0 means that buffer is empty
+		unsigned int GetNextMsgLen();
+
+		//copy raw bytes to provided buffer (probably faster than returning msg as vector)
+		//it will overflow buffer, make sure it's large enough by calling GetNextMsgLen()
+		//it consumes the msg
+		void GetNextMessage(byte* dst);
 
 		//the most generic send method
 		//msg: pointer to whatever bytes you want to send
 		//len: length in bytes
 		void Send(byte* msg, unsigned short len);
 
+		//assignment of stack objects is erroneous because of mutex
 		void operator=(const Client &rhs)
 		{
 			string msg = "(Client)a = (Client)b\nCannot assign to Client\nUse Init instead";
@@ -127,8 +168,10 @@ namespace wsl
 		//throws exception if socket() or bind() fails
 		Server(unsigned short port);
 		//default constructor
-		Server(){
-			running = false; }
+		Server()
+		{
+			running = false; 
+		}
 		//used to initialize stack obj since assignment is not allowed
 		void Init(unsigned short port);
 
@@ -149,11 +192,15 @@ namespace wsl
 		//disconnect all clients, server will keep running and accepting new clients
 		void DisconnectAll();
 
-		bool IsAccepting(){
-			return acceptingClients; }		
+		bool IsAccepting()
+		{
+			return acceptingClients;
+		}
 
-		bool IsRunning(){
-			return running;	}
+		bool IsRunning()
+		{
+			return running;	
+		}
 
 		//send message to all clients
 		void SendAll(byte* msg, unsigned short len)
@@ -162,8 +209,10 @@ namespace wsl
 				c->Send(msg, len);
 		}
 
-		vector<Client*> GetClients(){
-			return clients;	}
+		vector<Client*> GetClients()
+		{
+			return clients;	
+		}
 
 		void operator=(const Server &rhs)
 		{

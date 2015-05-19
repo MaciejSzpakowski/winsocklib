@@ -54,7 +54,11 @@ namespace wsl
 			byte tempBuffer[100];
 			int len = recv(client->handle, (char*)tempBuffer, 100, NULL);
 			if (len == SOCKET_ERROR)
-				throw NewSocketException("recv() in ReceiveThread()");
+			{
+				SocketException se = NewSocketException("recv() in ReceiveThread()");
+				client->SetLastException(se);
+				break;
+			}
 			client->receiveBufferMutex.lock();
 			for (int i = 0; i < len; i++)
 				client->receiveBuffer.push_back(tempBuffer[i]);
@@ -72,9 +76,15 @@ namespace wsl
 			if (socket == INVALID_SOCKET)
 			{
 				server->Stop();
-				throw NewSocketException("accept() in AcceptThread()");
+				SocketException se = NewSocketException("accept() in AcceptThread()");
+				server->SetLastException(se);
+				break;
 			}
-			Client* newClient = new Client(socket, address);
+			Client* newClient = new Client;
+			newClient->lastSocketException.code = 0;
+			newClient->connected = false;
+			newClient->handle = socket;
+			newClient->address = address;
 			server->clientsMutex.lock();
 			newClient->receiveThread = thread(ReceiveThread,newClient);
 			server->clients.push_back(newClient);
@@ -92,6 +102,7 @@ namespace wsl
 		handle = socket(AF_INET, SOCK_STREAM, NULL);
 		if (handle == INVALID_SOCKET)
 			throw NewSocketException("socket() in Client::Client()");
+		id = (long long)handle;
 		address.sin_family = AF_INET;
 		//this is how to create ip address from string
 		inet_pton(AF_INET, ip.c_str(), &(address.sin_addr));
@@ -103,8 +114,6 @@ namespace wsl
 	{
 		Disconnect();
 		name = "";
-		sendBuffer.clear();
-		sendBuffer.shrink_to_fit();
 		receiveBuffer.clear();
 		receiveBuffer.shrink_to_fit();
 		connected = false;
@@ -112,6 +121,7 @@ namespace wsl
 		handle = socket(AF_INET, SOCK_STREAM, NULL);
 		if (handle == INVALID_SOCKET)
 			throw NewSocketException("socket() in Client::Client()");
+		id = (long long)handle;
 		SecureZeroMemory(&address, sizeof(address));
 		address.sin_family = AF_INET;
 		//this is how to create ip address from string
@@ -129,6 +139,7 @@ namespace wsl
 		//start receiving thread
 		connected = true;
 		receiveThread = thread(ReceiveThread, this);
+		CheckForException();
 	}	
 
 	void Client::Disconnect()
@@ -136,14 +147,15 @@ namespace wsl
 		if (!connected)
 			return;
 		connected = false;
-		receiveThread.join();
 		if (closesocket(handle) == SOCKET_ERROR)
 			throw NewSocketException("closesocket() in Client::Disconnect()");
 		handle = INVALID_SOCKET;
+		ClearLastException();
 	}
 
 	vector<byte> Client::GetNextMessage()
 	{
+		CheckForException();
 		vector<byte> empty;
 		receiveBufferMutex.lock();
 		if (receiveBuffer.size() < 2)
@@ -157,7 +169,7 @@ namespace wsl
 		lenRaw[1] = receiveBuffer[1];
 		unsigned short len = *(unsigned short*)lenRaw;
 		//check if complete msg received
-		if (receiveBuffer.size() < len + 2)
+		if ((int)receiveBuffer.size() < len + 2)
 		{
 			receiveBufferMutex.unlock();
 			return empty;
@@ -168,8 +180,54 @@ namespace wsl
 		return msg;
 	}
 
+	unsigned int Client::GetNextMsgLen()
+	{
+		CheckForException();
+		receiveBufferMutex.lock();
+		if (receiveBuffer.size() < 2)
+		{
+			receiveBufferMutex.unlock();
+			return 0;
+		}
+		//get msg len from buffer, should be at the beginning
+		byte lenRaw[2];
+		lenRaw[0] = receiveBuffer[0];
+		lenRaw[1] = receiveBuffer[1];
+		receiveBufferMutex.unlock();
+		unsigned short len = *(unsigned short*)lenRaw;
+		return (unsigned int)len;
+	}
+
+	void Client::GetNextMessage(byte* dst)
+	{
+		CheckForException();
+		receiveBufferMutex.lock();
+		if (receiveBuffer.size() < 2)
+		{
+			receiveBufferMutex.unlock();
+			return;
+		}
+		//get msg len from buffer, should be at the beginning
+		byte lenRaw[2];
+		lenRaw[0] = receiveBuffer[0];
+		lenRaw[1] = receiveBuffer[1];
+		unsigned short len = *(unsigned short*)lenRaw;
+		//check if complete msg received
+		if ((int)receiveBuffer.size() < len + 2)
+		{
+			receiveBufferMutex.unlock();
+			return;
+		}
+		byte* it = receiveBuffer.data() + 2;
+		for (int i = 0; i < len; i++)
+			*(dst++) = *(it++);
+		receiveBuffer.erase(receiveBuffer.begin(), receiveBuffer.begin() + 2 + len);
+		receiveBufferMutex.unlock();
+	}
+
 	void Client::Send(byte* msg, unsigned short len)
 	{
+		CheckForException();
 		int index = 0;
 		//first 2 bytes is msg length as short
 		byte* smsg = new byte[len + 2];
@@ -197,30 +255,20 @@ namespace wsl
 	Server::Server(unsigned short port)
 	{
 		running = false;
-		//new socket
-		handle = socket(AF_INET, SOCK_STREAM, NULL);
-		if (handle == INVALID_SOCKET)
-			throw NewSocketException("socket() in Server::Server()");
-		//address struct
-		address.sin_port = htons(port);
-		address.sin_addr.s_addr = htonl(INADDR_ANY);
-		address.sin_family = AF_INET;
-		sockaddr* paddress = (sockaddr*)&address;
-		if (bind((SOCKET)handle, paddress, (int)sizeof(sockaddr)) == SOCKET_ERROR)
-			throw NewSocketException("bind() in Server::Server()");
+		Init(port);
 	}
 
 	void Server::Init(unsigned short port)
 	{
 		Stop();
+		ClearLastException();
 		name = "";
-		sendBuffer.clear();
-		sendBuffer.shrink_to_fit();
 		SecureZeroMemory(&address, sizeof(address));
 		//new socket
 		handle = socket(AF_INET, SOCK_STREAM, NULL);
 		if (handle == INVALID_SOCKET)
 			throw NewSocketException("socket() in Server::Server()");
+		id = (long long)handle;
 		//address struct
 		address.sin_port = htons(port);
 		address.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -239,6 +287,7 @@ namespace wsl
 			throw NewSocketException("listen() in Server::Start()");
 		//start accepting
 		acceptThread = thread(wsl::AcceptThread, this);
+		CheckForException();
 	}
 
 	void Server::Stop()
@@ -246,23 +295,44 @@ namespace wsl
 		if (!running)
 			return;
 		running = false;
+		acceptingClients = false;
 		DisconnectAll();
 		if (closesocket(handle) == SOCKET_ERROR)
 			throw NewSocketException("closesocket() in Server::Stop()");
+		acceptThread.join();
+		acceptThread = 0;
 	}
 
 	void Server::Disconnect(Client* c)
 	{
-
+		int index = 0;
+		for (int i = 0; i < (int)clients.size(); i++)
+		{
+			if (clients[i] == c)
+			{
+				index = i;
+				break;
+			}
+		}
+		if (closesocket(clients[index]->handle) == SOCKET_ERROR)
+			throw NewSocketException("closesocket() in Server::Disconnect()");
+		delete clients[index];
+		clients.erase(clients.begin() + index);
 	}
 
 	void Server::DisconnectAll()
 	{
-
+		for (int i = 0; i < (int)clients.size(); i++)
+		{
+			if (closesocket(clients[i]->handle) == SOCKET_ERROR)
+				throw NewSocketException("closesocket() in Server::Disconnect()");
+			delete clients[i];
+		}
+		clients.clear();
 	}	
 
 	Server::~Server()
 	{
-		DisconnectAll();
+		Stop();
 	}
 }
