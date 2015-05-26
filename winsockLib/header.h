@@ -41,79 +41,62 @@ namespace wsl
 		DWORD code;
 		string callStack;
 		string message;
+		Socket* socket;
+		SocketException();
+		SocketException(string callstack, Socket* socket);
+		~SocketException();
 	};
 
 	class Socket
 	{
 	protected:
+		bool valid;
 		long long id;
 		SocketException lastSocketException;
 		string name;
 		sockaddr_in address;
-		SOCKET handle;		
+		SOCKET handle;
 	public:
-		string GetName()
-		{
-			return name; 
-		}
+		//default constructor, no initialization
+		Socket();
+		//copy construtor to initialize invalid socket just to get ip, name and id
+		Socket(const Socket& s);
 
-		void SetName(string str)
-		{
-			name = str;
-		}
+		string GetName();
 
-		long long GetId()
-		{
-			return id;
-		}
+		void SetName(string str);
+
+		long long GetId();
 
 		//not necessary, all sockets are guaranteed to have a unique id
-		void SetId(int val)
-		{
-			id = val;
-		}
+		void SetId(int val);
 
-		string GetIP(){
-			char ip[100];
-			inet_ntop(AF_INET, &(address.sin_addr), ip, 100);
-			return string(ip);	}
+		string GetIP();
 
-		void ClearLastException()
-		{
-			lastSocketException.code = 0;
-		}
+		void ClearLastException();
 
-		void SetLastException(SocketException se)
-		{
-			lastSocketException = se;
-		}
+		void SetLastException(string callStack, Socket* socket);
 
 		//to be called in catching thread
-		void CheckForException()
-		{
-			if (lastSocketException.code != 0)
-				throw lastSocketException;
-		}
+		void CheckForException();
 	};
 
 	class Client : public Socket
 	{
 	private:
-		mutex receiveBufferMutex;
+		Server* server; //used for server side client connection
+		mutex* receiveBufferMutex;
 		vector<byte> receiveBuffer;
-		thread receiveThread;
+		thread* receiveThread;
 		bool connected;
 		friend void AcceptThread(Server* server);
 		friend void ReceiveThread(Client* client);
 		friend class Server;		
-	public:		
+	public:
 		//constructor for actual client program
 		Client(string ip, unsigned short port);
-		//default construtor
-		Client(){
-			connected = false; }
-		//used to initialize stack obj since assignment is not allowed
-		void Init(string ip, unsigned short port);
+		//default construtor, creates invalid client so it has to be reassigned later
+		Client();
 		//connect to server
 		void Connect();
 		//disconnect from server
@@ -143,37 +126,32 @@ namespace wsl
 		//len: length in bytes
 		void Send(byte* msg, unsigned short len);
 
-		//assignment of stack objects is erroneous because of mutex
-		void operator=(const Client &rhs)
-		{
-			string msg = "(Client)a = (Client)b\nCannot assign to Client\nUse Init instead";
-			MessageBox(0, msg.c_str(), 0, MB_ICONEXCLAMATION);
-			exit(0);
-		}
+		~Client();
+	};
 
-		~Client(){}
+	struct ServerMessage
+	{
+		bool empty;
+		Client sender;
+		vector<byte> msg;
+		ServerMessage();
 	};
 
 	class Server : public Socket
 	{
 	private:
-		mutex clientsMutex;
+		vector<ServerMessage> messages;
+		mutex* clientsMutex;
 		vector<Client*> clients;
-		thread acceptThread;
+		thread* acceptThread;
 		bool acceptingClients;
 		bool running;
 		friend void AcceptThread(Server* server);
 	public:
 		//server constructor
-		//throws exception if socket() or bind() fails
 		Server(unsigned short port);
-		//default constructor
-		Server()
-		{
-			running = false; 
-		}
-		//used to initialize stack obj since assignment is not allowed
-		void Init(unsigned short port);
+		//default constructor, creates invalid server so it must be reassign
+		Server();
 
 		//starts listening and accepting clients
 		//maxQueue: max number of clients waiting for connection
@@ -197,30 +175,16 @@ namespace wsl
 			return acceptingClients;
 		}
 
+		ServerMessage GetNextMessage();
+
 		bool IsRunning()
 		{
 			return running;	
 		}
 
 		//send message to all clients
-		void SendAll(byte* msg, unsigned short len)
-		{
-			for (auto c : clients)
-				c->Send(msg, len);
-		}
-
-		vector<Client*> GetClients()
-		{
-			return clients;	
-		}
-
-		void operator=(const Server &rhs)
-		{
-			string msg = "(Server)a = (Server)b\nCannot assign to Server\nUse Init instead";
-			MessageBox(0, msg.c_str(), 0, MB_ICONEXCLAMATION);
-			exit(0);
-		}
-
+		void SendAll(byte* msg, unsigned short len);
+		
 		~Server();
 	};
 }
