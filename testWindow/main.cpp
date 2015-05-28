@@ -1,6 +1,9 @@
-#include "../winsocklib/header.h"
-//hardcoded for debug
-#pragma comment(lib, "..\\debug\\winsockLib.lib")
+#include <Windows.h>
+#include <sstream>
+
+//hardcoded
+#include "../winsocklib/Public.h"
+#pragma comment(lib, "../debug/winsockLib.lib")
 
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")  
 
@@ -33,17 +36,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	case WM_CLOSE:
 
 		/* * * * stop server or client */
-		try
-		{
-			if (server.IsRunning())
-				server.Stop();
-			if (client.IsConnected())
-				client.Disconnect();
-		}
-		catch (wsl::SocketException se)
-		{
-			displayErrorMessage(se);
-		}
+		if (server.IsRunning())
+			server.Stop();
+		if (client.IsConnected())
+			client.Disconnect();
 		/* * * * * * * * * * * * * * * */
 
 		DestroyWindow(hwnd);
@@ -64,7 +60,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpCmdLine, int nCmdShow)
 {
 	/* * * * load library* * * * * */
-	wsl::Winsock winsock;
+	wsl::LoadWinsock();
 	/* * * * * * * * * * * * * * * */
 
 	outputString = "";
@@ -155,6 +151,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 			readMessages();
 	}
 
+	/* * * * release library* * * * * */
+	wsl::UnloadWinsock();
+	/* * * * * * * * * * * * * * * */
+
 	return Msg.wParam;
 }
 
@@ -163,43 +163,21 @@ void readMessages()
 	std::string newMessage = "";
 
 	/* * * * read messages * * * * */
-	try
+	//if current application is server...
+	if (server.IsRunning())
 	{
-		//if current application is server...
-		if (server.IsRunning())
-		{
-			//if there is a new message...
-			wsl::ServerMessage msg = server.GetNextMessage();
-			if (!msg.empty)
-				newMessage += msg.sender.GetIP() + ": " + std::string(msg.msg.begin(), msg.msg.end());
-		}
+		//if there is a new message...
+		wsl::ServerMessage msg = server.GetNextMessage();
+		if (!msg.empty)
+			newMessage += msg.sender.ip + ": " + std::string(msg.msg.begin(), msg.msg.end());
 	}
-	catch (wsl::SocketException se)
+	//if current application is client
+	if (client.IsConnected())
 	{
-		displayErrorMessage(se);
-		if (!server.IsRunning())
-		{
-			writeOutput("Server stopped");
-		}
-	}
-	try
-	{
-		//if current application is client
-		if (client.IsConnected())
-		{
-			//if there is a new message from server...
-			std::vector<byte> msg = client.GetNextMessage();
-			if (msg.size() > 0)
-				newMessage += "Server: " + std::string(msg.begin(), msg.end());
-		}
-	}
-	catch (wsl::SocketException se)
-	{
-		displayErrorMessage(se);
-		if (!client.IsConnected())
-		{
-			writeOutput("Client disconnected");
-		}
+		//if there is a new message from server...
+		std::vector<byte> msg = client.GetNextMessage();
+		if (msg.size() > 0)
+			newMessage += "Server: " + std::string(msg.begin(), msg.end());
 	}
 	/* * * * * * * * * * * * * * * */
 
@@ -236,13 +214,13 @@ void displayErrorMessage(wsl::SocketException se)
 	std::stringstream ssmsg;
 	ssmsg << se.callStack << "\n\n";
 	ssmsg << se.message << "\n\n";
-	if (se.socket != nullptr)
+	if (se.socket.id != NO_SENDER)
 	{
-		ssmsg << "Socket id: " << se.socket->GetId() << "\n";
-		ssmsg << "Socket ip: " << se.socket->GetIP() << "\n";
-		ssmsg << "Socket name: " << se.socket->GetName() << "\n\n";
-		ssmsg << "Press YES to abort" << se.socket->GetName();
+		ssmsg << "Socket id: " << se.socket.id << "\n";
+		ssmsg << "Socket ip: " << se.socket.ip << "\n";
+		ssmsg << "Socket name: " << se.socket.name << "\n\n";
 	}
+	ssmsg << "Press YES to abort";
 	std::stringstream sscode;
 	sscode << "Code: " << se.code;
 	if (MessageBox(0, ssmsg.str().c_str(), sscode.str().c_str(), MB_ICONERROR | MB_TASKMODAL | MB_YESNO | MB_DEFBUTTON2) == IDYES)
@@ -258,15 +236,8 @@ void buttonClick(HANDLE button)
 			return;
 
 		/* * * * start server* * * * * */
-		try
-		{
-			server = wsl::Server(port);
-			server.Start();			
-		}
-		catch (wsl::SocketException se)
-		{
-			displayErrorMessage(se);
-		}
+		server.Init(port);
+		server.Start();
 		/* * * * * * * * * * * * * * * */
 
 		if (server.IsRunning())
@@ -286,15 +257,8 @@ void buttonClick(HANDLE button)
 		std::string ip = getEditText(ipEdit);
 
 		/* * * * * connect client* * * */
-		try
-		{			
-			client = wsl::Client(ip, port);
-			client.Connect();
-		}
-		catch (wsl::SocketException se)
-		{
-			displayErrorMessage(se);
-		}		
+		client.Init(ip, port);
+		client.Connect();
 		/* * * * * * * * * * * * * * * */
 
 		if (client.IsConnected())
@@ -310,21 +274,14 @@ void buttonClick(HANDLE button)
 	{
 		std::string msg = getEditText(inputEdit);
 
-		/* * * *send message * * * * * */
-		try
+		/* * * *send message * * * * * */		
+		if (server.IsRunning())
 		{
-			if (server.IsRunning())
-			{
-				server.SendAll((byte*)msg.c_str(), msg.length());
-			}
-			else if (client.IsConnected())
-			{
-				client.Send((byte*)msg.c_str(), msg.length());
-			}
+			server.SendAll((byte*)msg.c_str(), msg.length());
 		}
-		catch (wsl::SocketException se)
+		else if (client.IsConnected())
 		{
-			displayErrorMessage(se);
+			client.Send((byte*)msg.c_str(), msg.length());
 		}
 		/* * * * * * * * * * * * * * * */
 
@@ -332,23 +289,16 @@ void buttonClick(HANDLE button)
 	}
 	else if (button == disconnectButton)
 	{
-		/* * * * stop server or client */
-		try
+		/* * * * stop server or client */		
+		if (server.IsRunning())
 		{
-			if (server.IsRunning())
-			{
-				server.Stop();
-				writeOutput("Server stopped");
-			}
-			if (client.IsConnected())
-			{
-				client.Disconnect();
-				writeOutput("Client disconnected");
-			}
+			server.Stop();
+			writeOutput("Server stopped");
 		}
-		catch (wsl::SocketException se)
+		if (client.IsConnected())
 		{
-			displayErrorMessage(se);
+			client.Disconnect();
+			writeOutput("Client disconnected");
 		}
 		/* * * * * * * * * * * * * * * */
 
