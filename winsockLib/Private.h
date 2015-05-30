@@ -26,22 +26,25 @@ namespace wsl
 	void ReceiveThread(IntClient* client);
 	void AcceptThread(IntServer* server);
 	string GetLastWinsockErrorMessage(PDWORD errorCode);
-	SocketException* NewSocketExceptionPtr(const char* _callStack, BaseSocket* socket, int code);
+	Notification NewSocketException(const char* _callStack, BaseSocket* socket, int code);
 	
 	struct BaseSocket
 	{
 		bool valid;
 		long long id;
-		SocketException* lastSocketException;
+		vector<Notification> notifications;
 		string name;
 		sockaddr_in address;
 		SOCKET handle;
 
 		string GetIP();
 
-		void ClearLastException();
-
-		void SetLastException(const char* callStack, BaseSocket* socket);
+		//add socket excception to notifications
+		void AppendException(const char* callStack, BaseSocket* socket);
+		
+		//get and remove last notification
+		//returns true if there was a notification to get, false otherwise
+		bool GetLastNotification(Notification& notification);
 	};
 
 	struct IntClient : public BaseSocket
@@ -67,7 +70,7 @@ namespace wsl
 		//easy to use, returns message as vector of bytes
 		//bytes can be accessed directly by calling data() on the vector
 		//it consumes the msg
-		vector<byte> GetNextMessage();
+		bool GetNextMessage(vector<byte>& dst);
 
 		//returns length in bytes of the next message in receive buffer
 		//0 means that buffer is empty
@@ -111,7 +114,7 @@ namespace wsl
 		//disconnect all clients, server will keep running and accepting new clients
 		void DisconnectAll();
 
-		ServerMessage GetNextMessage();
+		bool GetNextMessage(ServerMessage* msg);
 
 		//send message to all clients
 		void SendAll(byte* msg, unsigned short len);

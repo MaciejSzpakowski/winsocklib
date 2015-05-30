@@ -5,7 +5,6 @@ namespace wsl
 {
 	ServerMessage::ServerMessage()
 	{
-		empty = true;
 		sender.id = NO_SENDER;
 	}
 
@@ -48,18 +47,26 @@ namespace wsl
 
 	void DisconnectAll();
 
-	ServerMessage Server::GetNextMessage()
+	bool Server::GetNextMessage(ServerMessage* msg)
 	{
 		if (server != nullptr)
-			return server->GetNextMessage();
+			return server->GetNextMessage(msg);
 		else
-			return ServerMessage();
+			return false;
 	}
 
 	void Server::SendAll(byte* msg, unsigned short len)
 	{
 		if (server != nullptr)
 			server->SendAll(msg, len);
+	}
+
+	bool Server::GetLastNotification(Notification& notification)
+	{
+		if (server != nullptr)
+			return server->GetLastNotification(notification);
+		else
+			return false;
 	}
 
 	string Server::GetName()
@@ -144,12 +151,12 @@ namespace wsl
 			client->Disconnect();
 	}
 
-	vector<byte> Client::GetNextMessage()
+	bool Client::GetNextMessage(vector<byte>& msg)
 	{
 		if (client != nullptr)
-			return client->GetNextMessage();
-		vector<byte> empty;
-		return empty;
+			return client->GetNextMessage(msg);
+		else
+			return false;
 	}
 
 	unsigned int Client::GetNextMsgLen()
@@ -164,6 +171,14 @@ namespace wsl
 	{
 		if (client != nullptr)
 			client->GetNextMessage(dst);
+	}
+
+	bool Client::GetLastNotification(Notification& notification)
+	{
+		if (client != nullptr)
+			return client->GetLastNotification(notification);
+		else
+			return false;
 	}
 
 	void Client::Send(byte* msg, unsigned short len)

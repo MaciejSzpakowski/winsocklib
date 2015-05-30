@@ -9,15 +9,17 @@ namespace wsl
 		return string(ip);
 	}
 
-	void BaseSocket::ClearLastException()
+	void BaseSocket::AppendException(const char* callStack, BaseSocket* socket)
 	{
-		delete lastSocketException;
-		lastSocketException = nullptr;
+		notifications.push_back(NewSocketException(callStack, socket, -1));
 	}
 
-	void BaseSocket::SetLastException(const char* callStack, BaseSocket* socket)
+	bool BaseSocket::GetLastNotification(Notification& notification)
 	{
-		delete lastSocketException;
-		lastSocketException = NewSocketExceptionPtr(callStack, socket, -1);
+		if (notifications.size() == 0)
+			return false;
+		notification = notifications.back();
+		notifications.pop_back();
+		return true;
 	}
 }

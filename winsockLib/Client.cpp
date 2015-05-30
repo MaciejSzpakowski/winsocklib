@@ -7,16 +7,14 @@ namespace wsl
 		valid = true;
 		name = "";
 		connected = false;
-		lastSocketException = nullptr;
+		server = nullptr;
 		//create socket, AF_INET,SOCK_STREAM,NULL for tcp/ip v4, AF_INET6 for ip v6
 		handle = socket(AF_INET, SOCK_STREAM, NULL);
 		if (handle == INVALID_SOCKET)
 		{
 			valid = false;
-			SetLastException("socket() in Client::Client()", this);
+			AppendException("socket() in Client::Init()", this);
 		}
-		else
-			ClearLastException();
 		id = (long long)handle;
 		SecureZeroMemory(&address, sizeof(address));
 		address.sin_family = AF_INET;
@@ -30,7 +28,6 @@ namespace wsl
 	{
 		server = _server;
 		valid = true;
-		lastSocketException = nullptr;
 		connected = true;
 		handle = socket;
 		address = _address;
@@ -47,11 +44,9 @@ namespace wsl
 		int result = connect(handle, (sockaddr*)&(address), sizeof(sockaddr_in));
 		if (result == SOCKET_ERROR)
 		{
-			SetLastException("connect() in Client::Client()", this);
+			AppendException("connect() in Client::Connect()", this);
 			return;
 		}
-		else
-			ClearLastException();
 		//start receiving thread
 		connected = true;
 		receiveThread = thread(ReceiveThread, this);
@@ -63,22 +58,18 @@ namespace wsl
 			return;
 		connected = false;
 		if (closesocket(handle) == SOCKET_ERROR)
-			SetLastException("closesocket() in Client::Disconnect()", this);
-		else
-			ClearLastException();
+			AppendException("closesocket() in Client::Disconnect()", this);
 		receiveThread.join();
 		handle = INVALID_SOCKET;
-		ClearLastException();
 	}
 
-	vector<byte> IntClient::GetNextMessage()
+	bool IntClient::GetNextMessage(vector<byte>& msg)
 	{
-		vector<byte> empty;
 		receiveBufferMutex.lock();
 		if (receiveBuffer.size() < 2)
 		{
 			receiveBufferMutex.unlock();
-			return empty;
+			return false;
 		}
 		//get msg len from buffer, should be at the beginning
 		byte lenRaw[2];
@@ -89,12 +80,12 @@ namespace wsl
 		if ((int)receiveBuffer.size() < len + 2)
 		{
 			receiveBufferMutex.unlock();
-			return empty;
+			return false;
 		}
-		vector<byte> msg(receiveBuffer.begin() + 2, receiveBuffer.end());
+		msg = vector<byte>(receiveBuffer.begin() + 2, receiveBuffer.end());
 		receiveBuffer.erase(receiveBuffer.begin(), receiveBuffer.begin() + 2 + len);
 		receiveBufferMutex.unlock();
-		return msg;
+		return true;
 	}
 
 	unsigned int IntClient::GetNextMsgLen()
@@ -159,11 +150,12 @@ namespace wsl
 			if (sent == SOCKET_ERROR)
 			{
 				delete[] smsg;
-				SetLastException("send() in Server::Send()", this);
+				if(server != nullptr)
+					server->AppendException("send() in Server::Send()", this);
+				else
+					AppendException("send() in Client::Send()", this);
 				return;
 			}
-			else
-				ClearLastException();
 			index += sent;
 		}
 		delete[] smsg;
@@ -172,6 +164,5 @@ namespace wsl
 	IntClient::~IntClient()
 	{
 		Disconnect();
-		ClearLastException();
 	}
 }

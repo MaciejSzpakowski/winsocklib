@@ -10,7 +10,10 @@ namespace wsl
 			int len = recv(client->handle, (char*)tempBuffer, 100, NULL);
 			if (len == SOCKET_ERROR)
 			{
-				client->SetLastException("recv() in ReceiveThread()", client);
+				if(client->server != nullptr)
+					client->server->AppendException("recv() in ReceiveThread()", client);
+				else
+					client->AppendException("recv() in ReceiveThread()", client);
 				break;
 			}
 			client->receiveBufferMutex.lock();
@@ -30,7 +33,7 @@ namespace wsl
 			if (socket == INVALID_SOCKET)
 			{
 				server->Stop();
-				server->SetLastException("accept() in AcceptThread()", server);
+				server->AppendException("accept() in AcceptThread()", server);
 				break;
 			}
 			IntClient* newClient = new IntClient(socket, address, server);			
@@ -54,21 +57,21 @@ namespace wsl
 		return string(str);
 	}
 
-	SocketException* NewSocketExceptionPtr(const char* _callStack, BaseSocket* socket, int code)
+	Notification NewSocketException(const char* _callStack, BaseSocket* socket, int code)
 	{
-		SocketException* result = new SocketException;
-		result->callStack = _callStack;
+		Notification result;
+		result.callStack = _callStack;
 		if (code != -1)
 			WSASetLastError(code);
-		result->message = GetLastWinsockErrorMessage((PDWORD)&(result->code));
+		result.message = GetLastWinsockErrorMessage((PDWORD)&(result.code));
 		if (socket != nullptr)
 		{
-			result->socket.id = socket->id;
-			result->socket.ip = socket->GetIP();
-			result->socket.name = socket->name;
+			result.socket.id = socket->id;
+			result.socket.ip = socket->GetIP();
+			result.socket.name = socket->name;
 		}
 		else
-			result->socket.id = -1;
+			result.socket.id = -1;
 		return result;
 	}
 
@@ -78,11 +81,10 @@ namespace wsl
 		int res = WSAStartup(MAKEWORD(major, minor), wsadata);
 		if(res != 0)
 		{
-			SocketException* se = NewSocketExceptionPtr("", nullptr, res);
+			Notification se = NewSocketException("", nullptr, res);
 			std::stringstream ss;
-			ss << "Failed to load winsock library, reason: " << se->message;
+			ss << "Failed to load winsock library, reason: " << se.message;
 			MessageBox(0, ss.str().c_str(), "Winsock error", MB_ICONERROR | MB_TASKMODAL);
-			delete se;
 		}
 	}
 
@@ -93,11 +95,10 @@ namespace wsl
 		int res = WSAStartup(MAKEWORD(2, 2), &wsadata);
 		if (res != 0)
 		{
-			SocketException* se = NewSocketExceptionPtr("", nullptr, res);
+			Notification se = NewSocketException("", nullptr, res);
 			std::stringstream ss;
-			ss << "Failed to load winsock library, reason: " << se->message;
+			ss << "Failed to load winsock library, reason: " << se.message;
 			MessageBox(0, ss.str().c_str(), "Winsock error", MB_ICONERROR | MB_TASKMODAL);
-			delete se;
 		}
 	}
 
@@ -106,11 +107,10 @@ namespace wsl
 		int res = WSACleanup();
 		if (res != 0)
 		{
-			SocketException* se = NewSocketExceptionPtr("", nullptr, res);
+			Notification se = NewSocketException("", nullptr, res);
 			std::stringstream ss;
-			ss << "Failed to clean up winsock library, reason: " << se->message;
+			ss << "Failed to clean up winsock library, reason: " << se.message;
 			MessageBox(0, ss.str().c_str(), "Winsock error", MB_ICONERROR | MB_TASKMODAL);
-			delete se;
 		}
 	}	
 }

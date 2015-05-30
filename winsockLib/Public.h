@@ -28,7 +28,7 @@ namespace wsl
 		string ip;
 	};
 
-	struct SocketException
+	struct Notification
 	{
 		int code;
 		string callStack;
@@ -38,7 +38,6 @@ namespace wsl
 
 	struct ServerMessage
 	{
-		bool empty;
 		RawSocket sender;
 		vector<byte> msg;
 		ServerMessage();
@@ -72,10 +71,16 @@ namespace wsl
 		//disconnect all clients, server will keep running and accepting new clients
 		void DisconnectAll();
 
-		ServerMessage GetNextMessage();
+		//returns true if new message has been written to *msg
+		//returns false if there was no message
+		bool GetNextMessage(ServerMessage* msg);
 
 		//send message to all clients
 		void SendAll(byte* msg, unsigned short len);
+
+		//get and remove last notification
+		//returns true if there was a notification to get, false otherwise
+		bool GetLastNotification(Notification& notification);
 
 		~Server();
 		
@@ -109,10 +114,11 @@ namespace wsl
 		//disconnect from server
 		void Disconnect();
 
-		//easy to use, returns message as vector of bytes
+		//returns true if new message has been written to msg
+		//returns false if there was no new message
 		//bytes can be accessed directly by calling data() on the vector
 		//it consumes the msg
-		vector<byte> GetNextMessage();
+		bool GetNextMessage(vector<byte>& msg);
 
 		//returns length in bytes of the next message in receive buffer
 		//0 means that buffer is empty
@@ -127,6 +133,10 @@ namespace wsl
 		//msg: pointer to whatever bytes you want to send
 		//len: length in bytes
 		void Send(byte* msg, unsigned short len);
+
+		//get and remove last notification
+		//returns true if there was a notification to get, false otherwise
+		bool GetLastNotification(Notification& notification);
 
 		~Client();
 

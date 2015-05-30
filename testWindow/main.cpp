@@ -20,13 +20,14 @@ HWND labels[10];
 HWND* label;
 std::string outputString;
 
+wsl::Notification notification;
 wsl::Server server;
 wsl::Client client;
 
 void buttonClick(HANDLE button);
 std::string getEditText(HWND edit);
 void writeOutput(std::string str);
-void displayErrorMessage(wsl::SocketException se);
+void displayErrorMessage(wsl::Notification se);
 void readMessages();
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -167,17 +168,21 @@ void readMessages()
 	if (server.IsRunning())
 	{
 		//if there is a new message...
-		wsl::ServerMessage msg = server.GetNextMessage();
-		if (!msg.empty)
+		wsl::ServerMessage msg;
+		if (server.GetNextMessage(&msg))
 			newMessage += msg.sender.ip + ": " + std::string(msg.msg.begin(), msg.msg.end());
+		if (server.GetLastNotification(notification))
+			displayErrorMessage(notification);
 	}
 	//if current application is client
 	if (client.IsConnected())
 	{
 		//if there is a new message from server...
-		std::vector<byte> msg = client.GetNextMessage();
-		if (msg.size() > 0)
+		std::vector<byte> msg;
+		if (client.GetNextMessage(msg))
 			newMessage += "Server: " + std::string(msg.begin(), msg.end());
+		if (client.GetLastNotification(notification))
+			displayErrorMessage(notification);
 	}
 	/* * * * * * * * * * * * * * * */
 
@@ -209,7 +214,7 @@ void enableButton(HWND button)
 	UpdateWindow(button);
 }
 
-void displayErrorMessage(wsl::SocketException se)
+void displayErrorMessage(wsl::Notification se)
 {
 	std::stringstream ssmsg;
 	ssmsg << se.callStack << "\n\n";
@@ -236,8 +241,10 @@ void buttonClick(HANDLE button)
 			return;
 
 		/* * * * start server* * * * * */
-		server.Init(port);
+		server.Init(port);		
 		server.Start();
+		if (server.GetLastNotification(notification))
+			displayErrorMessage(notification);
 		/* * * * * * * * * * * * * * * */
 
 		if (server.IsRunning())
@@ -259,6 +266,8 @@ void buttonClick(HANDLE button)
 		/* * * * * connect client* * * */
 		client.Init(ip, port);
 		client.Connect();
+		if (client.GetLastNotification(notification))
+			displayErrorMessage(notification);
 		/* * * * * * * * * * * * * * * */
 
 		if (client.IsConnected())
@@ -278,10 +287,14 @@ void buttonClick(HANDLE button)
 		if (server.IsRunning())
 		{
 			server.SendAll((byte*)msg.c_str(), msg.length());
+			if (server.GetLastNotification(notification))
+				displayErrorMessage(notification);
 		}
 		else if (client.IsConnected())
 		{
 			client.Send((byte*)msg.c_str(), msg.length());
+			if (client.GetLastNotification(notification))
+				displayErrorMessage(notification);
 		}
 		/* * * * * * * * * * * * * * * */
 
@@ -294,11 +307,15 @@ void buttonClick(HANDLE button)
 		{
 			server.Stop();
 			writeOutput("Server stopped");
+			if (server.GetLastNotification(notification))
+				displayErrorMessage(notification);
 		}
 		if (client.IsConnected())
 		{
 			client.Disconnect();
 			writeOutput("Client disconnected");
+			if (client.GetLastNotification(notification))
+				displayErrorMessage(notification);
 		}
 		/* * * * * * * * * * * * * * * */
 
