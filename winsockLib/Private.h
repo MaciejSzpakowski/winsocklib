@@ -36,11 +36,16 @@ namespace wsl
 		string name;
 		sockaddr_in address;
 		SOCKET handle;
+		mutex receiveThreadMutex;
+		mutex acceptThreadMutex;
 
 		string GetIP();
 
 		//add socket excception to notifications
 		void AppendException(const char* callStack, BaseSocket* socket);
+
+		//add notification
+		void AppendNotification(Notification notification);
 		
 		//get and remove last notification
 		//returns true if there was a notification to get, false otherwise
@@ -49,10 +54,10 @@ namespace wsl
 
 	struct IntClient : public BaseSocket
 	{
-		IntServer* server; //used for server side client connection
-		mutex receiveBufferMutex;
+		IntServer* server; //used for server side client connection		
 		vector<byte> receiveBuffer;
 		thread receiveThread;
+		bool receiveThreadReturned;
 		bool connected;
 
 		//constructor for actual client program
@@ -91,8 +96,7 @@ namespace wsl
 
 	struct IntServer : public BaseSocket
 	{
-		vector<ServerMessage> messages;
-		mutex clientsMutex;
+		vector<ServerMessage> messages;		
 		vector<IntClient*> clients;
 		thread acceptThread;
 		bool acceptingClients;

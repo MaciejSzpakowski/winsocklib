@@ -4,6 +4,7 @@ namespace wsl
 {
 	IntClient::IntClient(string ip, unsigned short port)
 	{
+		receiveThreadReturned = false;
 		valid = true;
 		name = "";
 		connected = false;
@@ -26,6 +27,7 @@ namespace wsl
 
 	IntClient::IntClient(SOCKET socket, sockaddr_in _address, IntServer* _server)
 	{
+		receiveThreadReturned = false;
 		server = _server;
 		valid = true;
 		connected = true;
@@ -60,15 +62,26 @@ namespace wsl
 		if (closesocket(handle) == SOCKET_ERROR)
 			AppendException("closesocket() in Client::Disconnect()", this);
 		receiveThread.join();
+		//post disconnected notification
+		Notification newClientNotification;
+		newClientNotification.code = 100002;
+		newClientNotification.message = "Disconnected from server";
+		newClientNotification.socket.id = id;
+		newClientNotification.socket.ip = GetIP();
+		newClientNotification.socket.name = name;
+		AppendNotification(newClientNotification);
 		handle = INVALID_SOCKET;
 	}
 
 	bool IntClient::GetNextMessage(vector<byte>& msg)
 	{
-		receiveBufferMutex.lock();
+		//opportunity to check if it's still receiving
+		receiveThreadMutex.lock();
+		if (receiveThreadReturned)
+			Disconnect();
 		if (receiveBuffer.size() < 2)
 		{
-			receiveBufferMutex.unlock();
+			receiveThreadMutex.unlock();
 			return false;
 		}
 		//get msg len from buffer, should be at the beginning
@@ -79,28 +92,28 @@ namespace wsl
 		//check if complete msg received
 		if ((int)receiveBuffer.size() < len + 2)
 		{
-			receiveBufferMutex.unlock();
+			receiveThreadMutex.unlock();
 			return false;
 		}
 		msg = vector<byte>(receiveBuffer.begin() + 2, receiveBuffer.end());
 		receiveBuffer.erase(receiveBuffer.begin(), receiveBuffer.begin() + 2 + len);
-		receiveBufferMutex.unlock();
+		receiveThreadMutex.unlock();
 		return true;
 	}
 
 	unsigned int IntClient::GetNextMsgLen()
 	{
-		receiveBufferMutex.lock();
+		receiveThreadMutex.lock();
 		if (receiveBuffer.size() < 2)
 		{
-			receiveBufferMutex.unlock();
+			receiveThreadMutex.unlock();
 			return 0;
 		}
 		//get msg len from buffer, should be at the beginning
 		byte lenRaw[2];
 		lenRaw[0] = receiveBuffer[0];
 		lenRaw[1] = receiveBuffer[1];
-		receiveBufferMutex.unlock();
+		receiveThreadMutex.unlock();
 		unsigned short len = *(unsigned short*)lenRaw;
 		return (unsigned int)len;
 	}

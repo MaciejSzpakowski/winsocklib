@@ -29,6 +29,8 @@ std::string getEditText(HWND edit);
 void writeOutput(std::string str);
 void displayErrorMessage(wsl::Notification se);
 void readMessages();
+void disableButton(HWND button);
+void enableButton(HWND button);
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -170,8 +172,16 @@ void readMessages()
 		//if there is a new message...
 		wsl::ServerMessage msg;
 		if (server.GetNextMessage(&msg))
-			newMessage += msg.sender.ip + ": " + std::string(msg.msg.begin(), msg.msg.end());
-		if (server.GetLastNotification(notification))
+			newMessage += msg.sender.ip + ": " + std::string(msg.msg.begin(), msg.msg.end());		
+	}
+	if (server.GetLastNotification(notification))
+	{
+		if (notification.code == 100001)
+		{
+			std::string str = "New client " + notification.socket.ip;
+			writeOutput(str);
+		}
+		else
 			displayErrorMessage(notification);
 	}
 	//if current application is client
@@ -180,9 +190,20 @@ void readMessages()
 		//if there is a new message from server...
 		std::vector<byte> msg;
 		if (client.GetNextMessage(msg))
-			newMessage += "Server: " + std::string(msg.begin(), msg.end());
-		if (client.GetLastNotification(notification))
+			newMessage += "Server: " + std::string(msg.begin(), msg.end());		
+	}
+	if (client.GetLastNotification(notification))
+	{		
+		if (notification.code == 100002)
+		{
+			writeOutput("Client disconnected");
+			enableButton(connectButton);
+			enableButton(startServerButton);
+			disableButton(disconnectButton);
+		}
+		else
 			displayErrorMessage(notification);
+
 	}
 	/* * * * * * * * * * * * * * * */
 

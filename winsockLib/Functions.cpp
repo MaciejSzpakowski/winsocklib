@@ -16,11 +16,14 @@ namespace wsl
 					client->AppendException("recv() in ReceiveThread()", client);
 				break;
 			}
-			client->receiveBufferMutex.lock();
+			client->receiveThreadMutex.lock();
 			for (int i = 0; i < len; i++)
 				client->receiveBuffer.push_back(tempBuffer[i]);
-			client->receiveBufferMutex.unlock();
+			client->receiveThreadMutex.unlock();
 		}
+		client->receiveThreadMutex.lock();
+		client->receiveThreadReturned = true;
+		client->receiveThreadMutex.unlock();
 	}
 
 	void AcceptThread(IntServer* server)
@@ -37,9 +40,17 @@ namespace wsl
 				break;
 			}
 			IntClient* newClient = new IntClient(socket, address, server);			
-			server->clientsMutex.lock();
+			server->acceptThreadMutex.lock();
+			//post new connection notification
+			Notification newClientNotification;
+			newClientNotification.code = 100001;
+			newClientNotification.message = "New client connected";
+			newClientNotification.socket.id = newClient->id;
+			newClientNotification.socket.ip = newClient->GetIP();
+			newClientNotification.socket.name = newClient->name;
+			server->AppendNotification(newClientNotification);
 			server->clients.push_back(newClient);
-			server->clientsMutex.unlock();
+			server->acceptThreadMutex.unlock();
 		}
 	}
 

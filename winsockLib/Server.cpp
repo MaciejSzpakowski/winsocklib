@@ -66,7 +66,7 @@ namespace wsl
 		if (!valid || !running)
 			return;
 		int index = -1;
-		clientsMutex.lock();
+		acceptThreadMutex.lock();
 		//find it in vector
 		for (int i = 0; i < (int)clients.size(); i++)
 		{
@@ -84,14 +84,14 @@ namespace wsl
 		delete c;
 		//remove from vector
 		clients.erase(clients.begin() + index);
-		clientsMutex.unlock();
+		acceptThreadMutex.unlock();
 	}
 
 	void IntServer::DisconnectAll()
 	{
 		if (!valid || !running)
 			return;
-		clientsMutex.lock();
+		acceptThreadMutex.lock();
 		for (int i = 0; i < (int)clients.size(); i++)
 		{
 			if (closesocket(clients[i]->handle) == SOCKET_ERROR)
@@ -99,7 +99,7 @@ namespace wsl
 			delete clients[i];
 		}
 		clients.clear();
-		clientsMutex.unlock();
+		acceptThreadMutex.unlock();
 	}
 
 	bool IntServer::GetNextMessage(ServerMessage* msg)
@@ -115,10 +115,10 @@ namespace wsl
 		/////////////////no new messages = get messages from clients
 		ServerMessage empty;
 		//cases to return empty message
-		clientsMutex.lock();
+		acceptThreadMutex.lock();
 		if (!valid || !running || clients.size() == 0)
 		{
-			clientsMutex.unlock();
+			acceptThreadMutex.unlock();
 			return false;
 		}
 		//pool all connected clients
@@ -135,7 +135,7 @@ namespace wsl
 				messages.push_back(newMsg);
 			}
 		}
-		clientsMutex.unlock();
+		acceptThreadMutex.unlock();
 
 		//try again
 		if (messages.size() > 0)
